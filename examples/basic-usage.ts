@@ -8,7 +8,16 @@
  * 4. Update and save it back
  */
 
-import "dotenv/config";
+import { config } from "dotenv";
+import { resolve, join } from "path";
+import { existsSync } from "fs";
+
+// Load .env from current directory or parent directory (root)
+const envPath = existsSync("../.env") ? "../.env" : ".env";
+
+console.log("envPath", envPath);
+
+config({ path: resolve(envPath) });
 import { VaultManager, S3Client } from "@password-manager/core";
 import { execSync } from "child_process";
 
@@ -43,11 +52,28 @@ async function main() {
 
   // Helper function to generate pre-signed URLs
   function generateUrls() {
-    const urlsJson = execSync(
-      `BUCKET_NAME=${bucketName} OBJECT_KEY=${objectKey} AWS_REGION=${region} yarn generate-urls`,
-      { encoding: "utf-8", cwd: "scripts" }
-    );
-    return JSON.parse(urlsJson);
+    // Resolve scripts directory path (parent directory from examples/)
+    const scriptsDir = resolve(process.cwd(), "..", "scripts");
+    const scriptPath = join(scriptsDir, "generate-presigned-urls.ts");
+
+    // Run the script directly with tsx to avoid yarn output interfering with JSON parsing
+    const urlsJson = execSync(`tsx "${scriptPath}"`, {
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        BUCKET_NAME: bucketName,
+        OBJECT_KEY: objectKey,
+        AWS_REGION: region,
+      },
+    });
+
+    // Extract JSON from output (handle any potential non-JSON output)
+    const jsonMatch = urlsJson.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("Failed to extract JSON from script output");
+    }
+
+    return JSON.parse(jsonMatch[0]);
   }
 
   try {

@@ -11,7 +11,8 @@ const CURRENT_VERSION = 0x01;
 
 // Argon2id parameters
 // Memory cost in kilobytes (64MB = 64 * 1024 KB)
-const ARGON2_MEMORY_COST = 64 * 1024; // 64MB in KB
+
+const ARGON2_MEMORY_COST = 16 * 1024; // 16MB in KB
 const ARGON2_ITERATIONS = 3;
 const ARGON2_KEY_LENGTH = 32; // 32 bytes = 256 bits
 
