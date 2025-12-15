@@ -1,6 +1,6 @@
-import { argon2id } from '@noble/hashes/argon2';
-import { xchacha20poly1305 } from '@noble/ciphers/chacha';
-import { randomBytes } from '@noble/hashes/utils';
+import { argon2id } from "@noble/hashes/argon2";
+import { xchacha20poly1305 } from "@noble/ciphers/chacha";
+import { randomBytes } from "@noble/hashes/utils";
 
 // Encryption format: VERSION || SALT || NONCE || TAG || CIPHERTEXT
 const VERSION_BYTE_LENGTH = 1;
@@ -10,7 +10,8 @@ const TAG_LENGTH = 16; // bytes for xchacha20poly1305 authentication tag
 const CURRENT_VERSION = 0x01;
 
 // Argon2id parameters
-const ARGON2_MEMORY_COST = 64 * 1024 * 1024; // 64MB
+// Memory cost in kilobytes (64MB = 64 * 1024 KB)
+const ARGON2_MEMORY_COST = 64 * 1024; // 64MB in KB
 const ARGON2_ITERATIONS = 3;
 const ARGON2_KEY_LENGTH = 32; // 32 bytes = 256 bits
 
@@ -20,23 +21,22 @@ const ARGON2_KEY_LENGTH = 32; // 32 bytes = 256 bits
  * @param salt - Random salt (16 bytes)
  * @returns Derived key (32 bytes)
  */
-export async function deriveKey(password: string, salt: Uint8Array): Promise<Uint8Array> {
+export async function deriveKey(
+  password: string,
+  salt: Uint8Array
+): Promise<Uint8Array> {
   if (salt.length !== SALT_LENGTH) {
     throw new Error(`Salt must be ${SALT_LENGTH} bytes`);
   }
 
   const passwordBytes = new TextEncoder().encode(password);
-  
-  const key = await argon2id(
-    passwordBytes,
-    salt,
-    {
-      t: ARGON2_ITERATIONS,
-      m: ARGON2_MEMORY_COST,
-      p: 1, // parallelism
-      dkLen: ARGON2_KEY_LENGTH,
-    }
-  );
+
+  const key = await argon2id(passwordBytes, salt, {
+    t: ARGON2_ITERATIONS,
+    m: ARGON2_MEMORY_COST,
+    p: 1, // parallelism
+    dkLen: ARGON2_KEY_LENGTH,
+  });
 
   return key;
 }
@@ -49,7 +49,11 @@ export async function deriveKey(password: string, salt: Uint8Array): Promise<Uin
  * @param salt - Salt to include in output (16 bytes). If not provided, generates a random one.
  * @returns Encrypted data with format header
  */
-export function encrypt(plaintext: Uint8Array, key: Uint8Array, salt?: Uint8Array): Uint8Array {
+export function encrypt(
+  plaintext: Uint8Array,
+  key: Uint8Array,
+  salt?: Uint8Array
+): Uint8Array {
   if (key.length !== ARGON2_KEY_LENGTH) {
     throw new Error(`Key must be ${ARGON2_KEY_LENGTH} bytes`);
   }
@@ -76,7 +80,11 @@ export function encrypt(plaintext: Uint8Array, key: Uint8Array, salt?: Uint8Arra
 
   // Build the output: VERSION || SALT || NONCE || TAG || CIPHERTEXT
   const output = new Uint8Array(
-    VERSION_BYTE_LENGTH + SALT_LENGTH + NONCE_LENGTH + TAG_LENGTH + ciphertext.length
+    VERSION_BYTE_LENGTH +
+      SALT_LENGTH +
+      NONCE_LENGTH +
+      TAG_LENGTH +
+      ciphertext.length
   );
   let offset = 0;
 
@@ -113,7 +121,8 @@ export function decrypt(ciphertext: Uint8Array, key: Uint8Array): Uint8Array {
     throw new Error(`Key must be ${ARGON2_KEY_LENGTH} bytes`);
   }
 
-  const minLength = VERSION_BYTE_LENGTH + SALT_LENGTH + NONCE_LENGTH + TAG_LENGTH;
+  const minLength =
+    VERSION_BYTE_LENGTH + SALT_LENGTH + NONCE_LENGTH + TAG_LENGTH;
   if (ciphertext.length < minLength) {
     throw new Error(`Ciphertext too short. Minimum length: ${minLength} bytes`);
   }
@@ -125,7 +134,9 @@ export function decrypt(ciphertext: Uint8Array, key: Uint8Array): Uint8Array {
   offset += VERSION_BYTE_LENGTH;
 
   if (version !== CURRENT_VERSION) {
-    throw new Error(`Unsupported version: ${version}. Expected: ${CURRENT_VERSION}`);
+    throw new Error(
+      `Unsupported version: ${version}. Expected: ${CURRENT_VERSION}`
+    );
   }
 
   // Read SALT
@@ -162,4 +173,3 @@ export function decrypt(ciphertext: Uint8Array, key: Uint8Array): Uint8Array {
 export function generateSalt(): Uint8Array {
   return randomBytes(SALT_LENGTH);
 }
-

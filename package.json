@@ -5,15 +5,18 @@
   "workspaces": [
     "cdk",
     "scripts",
-    "core"
+    "core",
+    "examples"
   ],
   "scripts": {
     "build": "yarn workspaces run build",
-    "clean": "yarn workspaces run clean"
+    "clean": "yarn workspaces run clean",
+    "deploy": "cd cdk && yarn deploy",
+    "synth": "cd cdk && yarn synth",
+    "example": "cd examples && tsx basic-usage.ts"
   },
   "packageManager": "yarn@1.22.0",
   "devDependencies": {
     "typescript": "^5.3.3"
   }
 }
-

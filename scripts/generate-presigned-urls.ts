@@ -1,6 +1,12 @@
 #!/usr/bin/env node
-import { S3Client, HeadObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import "dotenv/config";
+import {
+  S3Client,
+  HeadObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 interface PresignedUrlsOutput {
   getUrl: string;
@@ -10,11 +16,11 @@ interface PresignedUrlsOutput {
 
 async function generatePresignedUrls(): Promise<void> {
   const bucketName = process.env.BUCKET_NAME;
-  const objectKey = process.env.OBJECT_KEY || 'vault.dat';
-  const region = process.env.AWS_REGION || 'us-east-1';
+  const objectKey = process.env.OBJECT_KEY || "vault.dat";
+  const region = process.env.AWS_REGION || "us-east-1";
 
   if (!bucketName) {
-    console.error('Error: BUCKET_NAME environment variable is required');
+    console.error("Error: BUCKET_NAME environment variable is required");
     process.exit(1);
   }
 
@@ -28,11 +34,11 @@ async function generatePresignedUrls(): Promise<void> {
       Key: objectKey,
     });
     const headResponse = await s3Client.send(headCommand);
-    etag = headResponse.ETag?.replace(/"/g, '') || null;
+    etag = headResponse.ETag?.replace(/"/g, "") || null;
   } catch (error: any) {
     // Object doesn't exist yet, which is fine
-    if (error.name !== 'NotFound') {
-      console.error('Error fetching object metadata:', error);
+    if (error.name !== "NotFound") {
+      console.error("Error fetching object metadata:", error);
       process.exit(1);
     }
   }
@@ -68,7 +74,6 @@ async function generatePresignedUrls(): Promise<void> {
 }
 
 generatePresignedUrls().catch((error) => {
-  console.error('Error:', error);
+  console.error("Error:", error);
   process.exit(1);
 });
-

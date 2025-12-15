@@ -1,0 +1,20 @@
+{
+  "name": "@password-manager/examples",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "clean": "echo 'No build artifacts to clean'",
+    "basic": "tsx basic-usage.ts"
+  },
+  "dependencies": {
+    "@password-manager/core": "*",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
