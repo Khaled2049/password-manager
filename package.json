@@ -1,0 +1,19 @@
+{
+  "name": "password-manager",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "cdk",
+    "scripts",
+    "core"
+  ],
+  "scripts": {
+    "build": "yarn workspaces run build",
+    "clean": "yarn workspaces run clean"
+  },
+  "packageManager": "yarn@1.22.0",
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
+
