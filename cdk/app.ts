@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-import 'source-map-support/register';
-import * as cdk from 'aws-cdk-lib';
-import { PasswordManagerStack } from './lib/stack';
+import "source-map-support/register";
+import * as cdk from "aws-cdk-lib";
+import { PasswordManagerStack } from "./lib/stack";
 
 const app = new cdk.App();
-new PasswordManagerStack(app, 'PasswordManagerStack', {
+new PasswordManagerStack(app, "PasswordManagerStack", {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
-    region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
+    region: process.env.CDK_DEFAULT_REGION || "us-east-1",
   },
 });
-

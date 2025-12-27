@@ -13,7 +13,8 @@
     "clean": "yarn workspaces run clean",
     "deploy": "cd cdk && yarn deploy",
     "synth": "cd cdk && yarn synth",
-    "example": "cd examples && tsx basic-usage.ts"
+    "example": "cd examples && tsx basic-usage.ts",
+    "generate": "tsx scripts/generate-presigned-urls.ts"
   },
   "packageManager": "yarn@1.22.0",
   "devDependencies": {
