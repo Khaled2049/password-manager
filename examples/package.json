@@ -6,7 +6,10 @@
   "scripts": {
     "build": "tsc --noEmit",
     "clean": "echo 'No build artifacts to clean'",
-    "basic": "tsx basic-usage.ts"
+    "basic": "tsx basic-usage.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@password-manager/core": "*",
@@ -14,7 +17,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@vitest/coverage-v8": "^1.0.0",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.0"
   }
 }
