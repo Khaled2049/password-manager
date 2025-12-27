@@ -1,6 +1,10 @@
-const STORAGE_KEY_VAULTS = "password-manager:vaults";
-const STORAGE_KEY_CURRENT_VAULT = "password-manager:current-vault";
-const STORAGE_KEY_VAULT_NAMES = "password-manager:vault-names";
+// API-based vault storage (replaces localStorage)
+// In mock mode, uses /mock-api/preferences endpoint
+// In production mode, falls back to localStorage for UI preferences
+
+const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API === "true";
+// In mock mode, use empty string (relative URLs), otherwise use API_URL
+const API_URL = USE_MOCK_API ? "" : import.meta.env.VITE_API_URL || "";
 
 export interface VaultMetadata {
   key: string;
@@ -9,114 +13,229 @@ export interface VaultMetadata {
   lastAccessed?: string;
 }
 
-/**
- * Get all stored vault metadata
- */
-export function getStoredVaults(): VaultMetadata[] {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY_VAULTS);
-    if (!stored) return [];
-    return JSON.parse(stored);
-  } catch {
-    return [];
-  }
+interface Preferences {
+  currentVaultKey: string | null;
+  vaultNames: { [key: string]: string };
 }
 
-/**
- * Save vault metadata list
- */
-export function saveVaults(vaults: VaultMetadata[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_VAULTS, JSON.stringify(vaults));
-  } catch (error) {
-    console.error("Failed to save vaults to localStorage:", error);
-  }
-}
+// Cache preferences in memory for synchronous access
+let preferencesCache: Preferences | null = null;
+let preferencesPromise: Promise<Preferences> | null = null;
 
 /**
- * Add or update a vault in storage
+ * Load preferences from API (mock mode) or localStorage (production mode)
  */
-export function upsertVault(vault: VaultMetadata): void {
-  const vaults = getStoredVaults();
-  const index = vaults.findIndex((v) => v.key === vault.key);
-  
-  if (index >= 0) {
-    vaults[index] = { ...vaults[index], ...vault };
+async function loadPreferences(): Promise<Preferences> {
+  if (USE_MOCK_API) {
+    try {
+      const response = await fetch(`${API_URL}/mock-api/preferences`);
+      if (!response.ok) {
+        throw new Error("Failed to load preferences");
+      }
+      const prefs = await response.json();
+      preferencesCache = {
+        currentVaultKey: prefs.currentVaultKey ?? null,
+        vaultNames: prefs.vaultNames || {},
+      };
+      return preferencesCache;
+    } catch (error) {
+      console.error("Failed to load preferences:", error);
+      return {
+        currentVaultKey: null,
+        vaultNames: {},
+      };
+    }
   } else {
-    vaults.push(vault);
+    // Production mode: use localStorage
+    try {
+      const currentVaultKey = localStorage.getItem(
+        "password-manager:current-vault"
+      );
+      const namesJson = localStorage.getItem("password-manager:vault-names");
+      const vaultNames = namesJson ? JSON.parse(namesJson) : {};
+
+      preferencesCache = {
+        currentVaultKey,
+        vaultNames,
+      };
+      return preferencesCache;
+    } catch {
+      return {
+        currentVaultKey: null,
+        vaultNames: {},
+      };
+    }
   }
-  
-  saveVaults(vaults);
 }
 
 /**
- * Remove a vault from storage
+ * Save preferences to API (mock mode) or localStorage (production mode)
  */
-export function removeVault(vaultKey: string): void {
-  const vaults = getStoredVaults();
-  const filtered = vaults.filter((v) => v.key !== vaultKey);
-  saveVaults(filtered);
+async function savePreferences(prefs: Partial<Preferences>): Promise<void> {
+  if (USE_MOCK_API) {
+    try {
+      const currentPrefs = preferencesCache || (await loadPreferences());
+      const updatedPrefs = {
+        currentVaultKey: prefs.currentVaultKey ?? currentPrefs.currentVaultKey,
+        vaultNames: prefs.vaultNames ?? currentPrefs.vaultNames,
+      };
+
+      await fetch(`${API_URL}/mock-api/preferences`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedPrefs),
+      });
+
+      preferencesCache = updatedPrefs;
+    } catch (error) {
+      console.error("Failed to save preferences:", error);
+    }
+  } else {
+    // Production mode: use localStorage
+    try {
+      if (prefs.currentVaultKey !== undefined) {
+        if (prefs.currentVaultKey) {
+          localStorage.setItem(
+            "password-manager:current-vault",
+            prefs.currentVaultKey
+          );
+        } else {
+          localStorage.removeItem("password-manager:current-vault");
+        }
+      }
+      if (prefs.vaultNames !== undefined) {
+        localStorage.setItem(
+          "password-manager:vault-names",
+          JSON.stringify(prefs.vaultNames)
+        );
+      }
+
+      // Update cache
+      if (preferencesCache) {
+        preferencesCache = {
+          currentVaultKey:
+            prefs.currentVaultKey ?? preferencesCache.currentVaultKey,
+          vaultNames: prefs.vaultNames ?? preferencesCache.vaultNames,
+        };
+      }
+    } catch (error) {
+      console.error("Failed to save preferences:", error);
+    }
+  }
+}
+
+/**
+ * Initialize preferences (call this early in the app)
+ */
+export async function initPreferences(): Promise<void> {
+  if (!preferencesPromise) {
+    preferencesPromise = loadPreferences().catch((error) => {
+      console.error("Failed to initialize preferences:", error);
+      // Return default preferences on error
+      preferencesCache = {
+        currentVaultKey: null,
+        vaultNames: {},
+      };
+      return preferencesCache;
+    });
+  }
+  await preferencesPromise;
 }
 
 /**
  * Get the currently selected vault key
  */
-export function getCurrentVaultKey(): string | null {
-  try {
-    return localStorage.getItem(STORAGE_KEY_CURRENT_VAULT);
-  } catch {
-    return null;
+export async function getCurrentVaultKey(): Promise<string | null> {
+  if (!preferencesCache) {
+    await initPreferences();
   }
+  return preferencesCache?.currentVaultKey ?? null;
+}
+
+/**
+ * Synchronous version for backward compatibility (uses cache)
+ * Use getCurrentVaultKey() for async version
+ */
+export function getCurrentVaultKeySync(): string | null {
+  return preferencesCache?.currentVaultKey ?? null;
 }
 
 /**
  * Set the currently selected vault key
  */
-export function setCurrentVaultKey(vaultKey: string | null): void {
-  try {
-    if (vaultKey) {
-      localStorage.setItem(STORAGE_KEY_CURRENT_VAULT, vaultKey);
-    } else {
-      localStorage.removeItem(STORAGE_KEY_CURRENT_VAULT);
-    }
-  } catch (error) {
-    console.error("Failed to save current vault key:", error);
-  }
+export async function setCurrentVaultKey(
+  vaultKey: string | null
+): Promise<void> {
+  await savePreferences({ currentVaultKey: vaultKey });
 }
 
 /**
  * Get custom display name for a vault
  */
-export function getVaultDisplayName(vaultKey: string): string | null {
-  try {
-    const names = localStorage.getItem(STORAGE_KEY_VAULT_NAMES);
-    if (!names) return null;
-    const nameMap: Record<string, string> = JSON.parse(names);
-    return nameMap[vaultKey] || null;
-  } catch {
-    return null;
+export async function getVaultDisplayName(
+  vaultKey: string
+): Promise<string | null> {
+  if (!preferencesCache) {
+    await initPreferences();
   }
+  return preferencesCache?.vaultNames[vaultKey] || null;
+}
+
+/**
+ * Synchronous version for backward compatibility (uses cache)
+ * Use getVaultDisplayName() for async version
+ */
+export function getVaultDisplayNameSync(vaultKey: string): string | null {
+  return preferencesCache?.vaultNames[vaultKey] || null;
 }
 
 /**
  * Set custom display name for a vault
  */
-export function setVaultDisplayName(vaultKey: string, displayName: string): void {
-  try {
-    const names = localStorage.getItem(STORAGE_KEY_VAULT_NAMES);
-    const nameMap: Record<string, string> = names ? JSON.parse(names) : {};
-    nameMap[vaultKey] = displayName;
-    localStorage.setItem(STORAGE_KEY_VAULT_NAMES, JSON.stringify(nameMap));
-  } catch (error) {
-    console.error("Failed to save vault display name:", error);
+export async function setVaultDisplayName(
+  vaultKey: string,
+  displayName: string
+): Promise<void> {
+  if (!preferencesCache) {
+    await initPreferences();
   }
+  const vaultNames = { ...(preferencesCache?.vaultNames || {}) };
+  vaultNames[vaultKey] = displayName;
+  await savePreferences({ vaultNames });
 }
 
 /**
  * Get display name for a vault (custom name or default name)
  */
 export function getVaultName(vaultKey: string, defaultName: string): string {
-  const customName = getVaultDisplayName(vaultKey);
+  const customName = getVaultDisplayNameSync(vaultKey);
   return customName || defaultName;
 }
 
+/**
+ * Get pending vault name (set when user wants to create a vault from VaultSelector)
+ * Note: This still uses localStorage as it's temporary UI state
+ */
+export function getPendingVaultName(): string | null {
+  try {
+    return localStorage.getItem("password-manager:pending-vault-name");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Set pending vault name
+ * Note: This still uses localStorage as it's temporary UI state
+ */
+export function setPendingVaultName(vaultName: string | null): void {
+  try {
+    if (vaultName) {
+      localStorage.setItem("password-manager:pending-vault-name", vaultName);
+    } else {
+      localStorage.removeItem("password-manager:pending-vault-name");
+    }
+  } catch (error) {
+    console.error("Failed to save pending vault name:", error);
+  }
+}

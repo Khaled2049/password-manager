@@ -1,334 +1,253 @@
-import { useState, useCallback } from "react";
-import { VaultManager, S3Client } from "@password-manager/core";
+import { useState, useCallback, useRef } from "react";
 import { showError, showSuccess, showInfo } from "../utils/notifications";
-import { listVaults, getVaultUrls, type VaultInfo } from "../api/vault-api";
+import { setCurrentVaultKey } from "../utils/vault-storage";
 import {
-  getCurrentVaultKey,
-  setCurrentVaultKey,
-  upsertVault,
-  getVaultName,
-} from "../utils/vault-storage";
+  VaultService,
+  type VaultData,
+  type VaultEntry,
+  type VaultSession,
+} from "../services/vault-service";
+import type { VaultInfo } from "../api/vault-api";
 
-export interface VaultEntry {
-  id: string;
-  title: string;
-  username: string;
-  password: string;
-  url?: string;
-}
+// Re-export types for backward compatibility
+export type { VaultEntry, VaultData };
 
-export interface VaultData {
-  entries: VaultEntry[];
-  created: string;
-  lastModified: string;
-}
+/**
+ * Consolidated status state
+ */
+type VaultStatus =
+  | { type: "idle" }
+  | { type: "checking" }
+  | { type: "loading" }
+  | { type: "loadingVaults" }
+  | { type: "error"; message: string };
 
+/**
+ * Main vault hook with simplified state management
+ */
 export const useVault = () => {
+  const [status, setStatus] = useState<VaultStatus>({ type: "idle" });
   const [vault, setVault] = useState<VaultData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [masterPassword, setMasterPassword] = useState<string>("");
   const [vaultExists, setVaultExists] = useState<boolean | null>(null);
-  const [checkingVault, setCheckingVault] = useState(false);
   const [currentVaultKey, setCurrentVaultKeyState] = useState<string | null>(
     null
   );
   const [availableVaults, setAvailableVaults] = useState<VaultInfo[]>([]);
-  const [loadingVaults, setLoadingVaults] = useState(false);
 
-  // Fallback to environment variables for backward compatibility
-  const fallbackGetUrl = import.meta.env.VITE_VAULT_GET_URL;
-  const fallbackPutUrl = import.meta.env.VITE_VAULT_PUT_URL;
+  const serviceRef = useRef<VaultService>(new VaultService());
+  const sessionRef = useRef<VaultSession | null>(null);
+  const checkingVaultKeyRef = useRef<string | null>(null);
 
+  /**
+   * QUERY: Check if a vault exists (doesn't modify state directly)
+   */
   const checkVaultExists = useCallback(
     async (vaultKey?: string) => {
       const keyToCheck = vaultKey || currentVaultKey;
-      
-      // If using API, check via API
-      if (keyToCheck) {
-        setCheckingVault(true);
-        try {
-          const urls = await getVaultUrls(keyToCheck);
-          // If we got URLs, try to download to verify it exists
-          const s3Client = new S3Client();
-          try {
-            await s3Client.download(urls.getUrl);
-            setVaultExists(true);
-          } catch (err) {
-            // 404 means it doesn't exist yet
-            setVaultExists(false);
-          }
-        } catch (err) {
-          // Assume it doesn't exist
-          setVaultExists(false);
-        } finally {
-          setCheckingVault(false);
-        }
-        return;
-      }
+      const checkId = keyToCheck || "__fallback__";
 
-      // Fallback to environment variable approach
-      if (!fallbackGetUrl) {
-        setVaultExists(false);
-        return;
-      }
+      // Prevent race conditions
+      checkingVaultKeyRef.current = checkId;
+      setStatus({ type: "checking" });
 
-      setCheckingVault(true);
       try {
-        const s3Client = new S3Client();
-        await s3Client.download(fallbackGetUrl);
-        setVaultExists(true);
+        // Add timeout to prevent hanging
+        const timeoutPromise = new Promise<boolean>((_, reject) => {
+          setTimeout(() => reject(new Error("Timeout")), 10000);
+        });
+
+        const exists = await Promise.race([
+          serviceRef.current.checkVaultExists(keyToCheck || undefined),
+          timeoutPromise,
+        ]);
+
+        // Only update if we're still checking the same vault
+        if (checkingVaultKeyRef.current === checkId) {
+          setVaultExists(exists);
+          setStatus({ type: "idle" });
+        }
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Unknown error";
-        // Check if it's a 404 error (vault doesn't exist)
-        if (
-          errorMessage.includes("404") ||
-          errorMessage.includes("Failed to download")
-        ) {
+        console.error("Error checking vault exists:", err);
+        // Always set vaultExists to false on error (create mode)
+        if (checkingVaultKeyRef.current === checkId) {
           setVaultExists(false);
-        } else {
-          // Other error - might be network issue, but assume vault doesn't exist for now
-          setVaultExists(false);
+          setStatus({ type: "idle" });
         }
       } finally {
-        setCheckingVault(false);
+        if (checkingVaultKeyRef.current === checkId) {
+          checkingVaultKeyRef.current = null;
+        }
       }
     },
     [currentVaultKey]
   );
 
+  /**
+   * QUERY: Refresh vault list (doesn't modify vault state)
+   */
+  const refreshVaultList = useCallback(async () => {
+    setStatus({ type: "loadingVaults" });
+    try {
+      const vaults = await serviceRef.current.listAvailableVaults();
+      setAvailableVaults(vaults);
+      setStatus({ type: "idle" });
+    } catch (err) {
+      console.error("Failed to refresh vault list:", err);
+      setStatus({ type: "idle" });
+    }
+  }, []);
+
+  /**
+   * COMMAND: Create a new vault
+   */
   const createVault = useCallback(
     async (password: string, vaultName?: string) => {
-      setLoading(true);
-      setError(null);
+      setStatus({ type: "loading" });
 
       try {
-        const vaultManager = new VaultManager();
-        const s3Client = new S3Client();
-
-        // Determine vault key
-        let vaultKey: string;
-        let putUrl: string;
-        let getUrl: string;
-
-        if (vaultName) {
-          // Use API to get URLs for new vault
-          vaultKey = vaultName.endsWith(".dat")
-            ? `vaults/${vaultName}`
-            : `vaults/${vaultName}.dat`;
-          const urls = await getVaultUrls(vaultKey);
-          putUrl = urls.putUrl;
-          getUrl = urls.getUrl;
-        } else if (fallbackPutUrl) {
-          // Fallback to environment variable
-          vaultKey = "vault.dat";
-          putUrl = fallbackPutUrl;
-          getUrl = fallbackGetUrl || "";
-        } else {
-          throw new Error(
-            "Vault name required. Please provide a name for the new vault."
-          );
-        }
-
-        // Create initial vault data
-        const initialVaultData: VaultData = {
-          entries: [],
-          created: new Date().toISOString(),
-          lastModified: new Date().toISOString(),
-        };
-
-        // Convert to bytes
-        const plaintext = new TextEncoder().encode(
-          JSON.stringify(initialVaultData)
+        const result = await serviceRef.current.createVault(
+          password,
+          vaultName
         );
 
-        // Create encrypted vault
-        const encryptedVault = await vaultManager.create(password, plaintext);
-
-        // Upload to S3
-        await s3Client.upload(putUrl, encryptedVault);
-
         // Update state
-        setVault(initialVaultData);
-        setMasterPassword(password);
+        sessionRef.current = result.session;
+        setVault(result.vaultData);
         setVaultExists(true);
-        setCurrentVaultKeyState(vaultKey);
-        setCurrentVaultKey(vaultKey);
-
-        // Update vault metadata
-        upsertVault({
-          key: vaultKey,
-          name: vaultName || "default",
-          lastAccessed: new Date().toISOString(),
-        });
+        setCurrentVaultKeyState(result.session.vaultKey);
+        await setCurrentVaultKey(result.session.vaultKey);
 
         // Refresh vault list
         await refreshVaultList();
 
+        setStatus({ type: "idle" });
         showSuccess("Vault created successfully");
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : "Failed to create vault";
-        setError(errorMessage);
+        setStatus({ type: "error", message: errorMessage });
+        sessionRef.current = null;
         showError(errorMessage);
-      } finally {
-        setLoading(false);
       }
     },
-    [fallbackPutUrl, fallbackGetUrl]
+    [refreshVaultList]
   );
 
+  /**
+   * COMMAND: Unlock an existing vault
+   */
   const unlock = useCallback(
     async (password: string, vaultKey?: string) => {
-      const keyToUnlock = vaultKey || currentVaultKey;
-      
-      setLoading(true);
-      setError(null);
+      const targetKey = vaultKey || currentVaultKey;
+      setStatus({ type: "loading" });
 
       try {
-        let getUrl: string;
+        const result = await serviceRef.current.unlockVault(
+          password,
+          targetKey || undefined
+        );
 
-        // Get URLs for the vault
-        if (keyToUnlock) {
-          const urls = await getVaultUrls(keyToUnlock);
-          getUrl = urls.getUrl;
-        } else if (fallbackGetUrl) {
-          // Fallback to environment variable
-          getUrl = fallbackGetUrl;
-        } else {
-          throw new Error(
-            "Vault key not specified. Please select a vault or configure VITE_VAULT_GET_URL."
-          );
-        }
-
-        const s3Client = new S3Client();
-        const vaultManager = new VaultManager();
-
-        // Download encrypted vault
-        const { data: encryptedVault } = await s3Client.download(getUrl);
-
-        // Unlock vault
-        const plaintext = await vaultManager.unlock(encryptedVault, password);
-
-        // Parse vault data
-        const data = JSON.parse(
-          new TextDecoder().decode(plaintext)
-        ) as VaultData;
-
-        setVault(data);
-        setMasterPassword(password);
+        // Update state
+        sessionRef.current = result.session;
+        setVault(result.vaultData);
         setVaultExists(true);
-        
-        // Update current vault key if not already set
-        if (keyToUnlock && keyToUnlock !== currentVaultKey) {
-          setCurrentVaultKeyState(keyToUnlock);
-          setCurrentVaultKey(keyToUnlock);
-          upsertVault({
-            key: keyToUnlock,
-            name: getVaultName(keyToUnlock, "default"),
-            lastAccessed: new Date().toISOString(),
-          });
+
+        const key = result.session.vaultKey;
+        if (key !== currentVaultKey) {
+          setCurrentVaultKeyState(key);
+          await setCurrentVaultKey(key);
         }
 
+        setStatus({ type: "idle" });
         showSuccess("Vault unlocked successfully");
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Unknown error";
+      } catch (err: any) {
+        sessionRef.current = null;
+        const is404 =
+          err.message?.includes("404") || err.message?.includes("NOT_FOUND");
 
-        // Check if it's a 404 error (vault doesn't exist)
-        // This could happen if vault was deleted between check and unlock
-        if (
-          errorMessage.includes("404") ||
-          errorMessage.includes("Failed to download")
-        ) {
-          setVaultExists(false);
-          const errMsg = "Vault not found. Please create a new vault.";
-          setError(errMsg);
-          showError(errMsg);
-        } else {
-          // Wrong password or decryption error
-          const errMsg = "Failed to unlock vault. Check your password.";
-          setError(errMsg);
-          showError(errMsg);
-        }
-      } finally {
-        setLoading(false);
+        if (is404) setVaultExists(false);
+
+        const msg = is404 ? "Vault not found." : "Incorrect password.";
+        setStatus({ type: "error", message: msg });
+        showError(msg);
       }
     },
-    [currentVaultKey, fallbackGetUrl]
+    [currentVaultKey]
   );
-
+  /**
+   * COMMAND: Lock the vault
+   */
   const lock = useCallback(() => {
+    if (sessionRef.current) {
+      serviceRef.current.lockSession(sessionRef.current);
+      sessionRef.current = null;
+    }
     setVault(null);
-    setMasterPassword("");
-    setError(null);
+    setStatus({ type: "idle" });
     showInfo("Vault locked");
   }, []);
 
+  /**
+   * COMMAND: Save vault data
+   */
   const saveVault = useCallback(
     async (updatedVault: VaultData) => {
-      if (!masterPassword) {
-        const err = "Master password not available";
-        setError(err);
+      if (!sessionRef.current) {
+        const err = "No vault session. Please unlock the vault first.";
+        setStatus({ type: "error", message: err });
         showError(err);
         return;
       }
 
-      const keyToSave = currentVaultKey;
-      if (!keyToSave && !fallbackPutUrl) {
-        const err = "No vault selected. Please select a vault first.";
-        setError(err);
-        showError(err);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
+      setStatus({ type: "loading" });
 
       try {
-        let putUrl: string;
+        const result = await serviceRef.current.saveVault(
+          updatedVault,
+          sessionRef.current
+        );
 
-        // Get URLs for the vault
-        if (keyToSave) {
-          const urls = await getVaultUrls(keyToSave);
-          putUrl = urls.putUrl;
-        } else if (fallbackPutUrl) {
-          // Fallback to environment variable
-          putUrl = fallbackPutUrl;
-        } else {
-          throw new Error("No vault URL available");
+        // Update session and state
+        sessionRef.current = result.updatedSession;
+        setVault(updatedVault);
+
+        // Update vault key if it was sanitized
+        if (
+          result.updatedSession.vaultKey !== currentVaultKey &&
+          result.updatedSession.vaultKey
+        ) {
+          setCurrentVaultKeyState(result.updatedSession.vaultKey);
+          await setCurrentVaultKey(result.updatedSession.vaultKey);
         }
 
-        const vaultManager = new VaultManager();
-        const s3Client = new S3Client();
-
-        // Encrypt updated vault
-        const updatedPlaintext = new TextEncoder().encode(
-          JSON.stringify(updatedVault)
-        );
-        const newEncryptedVault = await vaultManager.save(
-          updatedPlaintext,
-          masterPassword
-        );
-
-        // Upload to S3
-        await s3Client.upload(putUrl, newEncryptedVault);
-
-        setVault(updatedVault);
+        setStatus({ type: "idle" });
         showSuccess("Vault saved successfully");
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : "Failed to save vault";
-        setError(errorMessage);
-        showError(errorMessage);
-      } finally {
-        setLoading(false);
+
+        // Handle ETag conflict (concurrent modification)
+        if (
+          errorMessage.includes("PRECONDITION_FAILED") ||
+          errorMessage.includes("ETag mismatch") ||
+          errorMessage.includes("412")
+        ) {
+          const conflictMsg =
+            "Vault was modified by another process. Please refresh and try again.";
+          setStatus({ type: "error", message: conflictMsg });
+          showError(conflictMsg);
+        } else {
+          setStatus({ type: "error", message: errorMessage });
+          showError(errorMessage);
+        }
       }
     },
-    [currentVaultKey, masterPassword, fallbackPutUrl]
+    [currentVaultKey]
   );
 
+  /**
+   * COMMAND: Add entry to vault
+   */
   const addEntry = useCallback(
     async (entry: Omit<VaultEntry, "id">) => {
       if (!vault) return;
@@ -349,54 +268,40 @@ export const useVault = () => {
     [vault, saveVault]
   );
 
-  const refreshVaultList = useCallback(async () => {
-    setLoadingVaults(true);
-    try {
-      const vaults = await listVaults();
-      setAvailableVaults(vaults);
-    } catch (err) {
-      console.error("Failed to refresh vault list:", err);
-      // Don't show error to user, just log it
-    } finally {
-      setLoadingVaults(false);
+  /**
+   * COMMAND: Switch to a different vault (or clear selection with null)
+   */
+  const switchVault = useCallback(async (vaultKey: string | null) => {
+    // Lock current vault first
+    if (sessionRef.current) {
+      serviceRef.current.lockSession(sessionRef.current);
+      sessionRef.current = null;
     }
+    // Clear any ongoing vault check to prevent race conditions
+    checkingVaultKeyRef.current = null;
+    setVault(null);
+    setStatus({ type: "idle" });
+    setCurrentVaultKeyState(vaultKey);
+    await setCurrentVaultKey(vaultKey);
+    setVaultExists(null);
   }, []);
-
-  const switchVault = useCallback(
-    async (vaultKey: string) => {
-      // Lock current vault first
-      setVault(null);
-      setMasterPassword("");
-      setError(null);
-      setCurrentVaultKeyState(vaultKey);
-      setCurrentVaultKey(vaultKey);
-      setVaultExists(null);
-      
-      // Update metadata
-      upsertVault({
-        key: vaultKey,
-        name: getVaultName(vaultKey, "default"),
-        lastAccessed: new Date().toISOString(),
-      });
-    },
-    []
-  );
 
   return {
     vault,
-    loading,
-    error,
+    loading: status.type === "loading",
+    checkingVault: status.type === "checking",
+    loadingVaults: status.type === "loadingVaults",
+    error: status.type === "error" ? status.message : null,
+    status, // Export the raw status for more complex UI logic
     unlock,
     lock,
     addEntry,
     saveVault,
     vaultExists,
-    checkingVault,
     checkVaultExists,
     createVault,
     currentVaultKey,
     availableVaults,
-    loadingVaults,
     refreshVaultList,
     switchVault,
   };

@@ -4,6 +4,7 @@ import PasswordEntry from "./PasswordEntry";
 import AddEntryModal from "./AddEntryModal";
 import VaultSelector from "./VaultSelector";
 import type { VaultInfo } from "../api/vault-api";
+import { setPendingVaultName } from "../utils/vault-storage";
 
 interface VaultScreenProps {
   vault: VaultData;
@@ -13,9 +14,7 @@ interface VaultScreenProps {
   ) => void;
   currentVaultKey: string | null;
   availableVaults: VaultInfo[];
-  onSwitchVault: (vaultKey: string) => void;
-  onCreateVault: (vaultName: string) => Promise<void>;
-  onRefreshVaults: () => void;
+  onSwitchVault: (vaultKey: string | null) => void;
   loadingVaults?: boolean;
 }
 
@@ -26,21 +25,16 @@ export default function VaultScreen({
   currentVaultKey,
   availableVaults,
   onSwitchVault,
-  onCreateVault,
-  onRefreshVaults,
   loadingVaults = false,
 }: VaultScreenProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isCreatingVault, setIsCreatingVault] = useState(false);
 
   const handleCreateVault = async (vaultName: string) => {
-    setIsCreatingVault(true);
-    try {
-      await onCreateVault(vaultName);
-      await onRefreshVaults();
-    } finally {
-      setIsCreatingVault(false);
-    }
+    // Store the vault name so UnlockScreen can pre-fill it
+    setPendingVaultName(vaultName);
+    // Lock current vault and switch to unlock screen in create mode
+    // The user will need to enter a password to create the new vault
+    onLock();
   };
 
   return (
@@ -56,7 +50,7 @@ export default function VaultScreen({
                 currentVaultKey={currentVaultKey}
                 onSwitchVault={onSwitchVault}
                 onCreateVault={handleCreateVault}
-                loading={loadingVaults || isCreatingVault}
+                loading={loadingVaults}
               />
               <span className="text-sm text-gray-400 hidden sm:inline">
                 {vault.entries.length}{" "}

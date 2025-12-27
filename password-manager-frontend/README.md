@@ -6,16 +6,40 @@ React + TypeScript + Vite frontend for the Password Manager application.
 
 ### Environment Variables
 
-The frontend requires pre-signed S3 URLs for vault access. These URLs expire after 12 minutes and need to be regenerated periodically.
+The frontend supports two modes: **Mock API** (for local testing) and **Production API** (with real backend).
 
-1. **Create a `.env` file** in the root directory (or use the root project `.env`):
+#### Option 1: Mock API (Recommended for Local Development)
+
+Use the mock API server for local testing without backend dependencies:
+
+1. **Create a `.env` file** in the root directory:
    ```env
+   VITE_USE_MOCK_API=true
+   ```
+
+2. **Start the development server**:
+   ```bash
+   npm run dev
+   ```
+
+   The mock API server will automatically intercept API calls and store vaults in memory. All vault data resets when you restart the dev server.
+   
+   **Note:** The mock server does not have a default master password. When creating a vault, use any password you choose - it's your choice! The mock server stores encrypted vault data only (encryption is handled by the VaultManager).
+
+#### Option 2: Production API
+
+Use the real backend API with pre-signed S3 URLs:
+
+1. **Create a `.env` file** in the root directory:
+   ```env
+   VITE_USE_MOCK_API=false
+   VITE_API_URL=https://your-api-gateway-url.execute-api.region.amazonaws.com
    BUCKET_NAME=your-bucket-name
    AWS_REGION=us-east-1
    OBJECT_KEY=vault.dat
    ```
 
-2. **Generate and update vault URLs**:
+2. **Generate and update vault URLs** (if using fallback mode):
    ```bash
    npm run update-urls
    ```
@@ -34,7 +58,13 @@ The frontend requires pre-signed S3 URLs for vault access. These URLs expire aft
    npm run dev:with-urls
    ```
 
-### Manual URL Updates
+### Switching Between Mock and Production
+
+Simply change the `VITE_USE_MOCK_API` environment variable:
+- `VITE_USE_MOCK_API=true` - Use mock API (no backend required)
+- `VITE_USE_MOCK_API=false` or unset - Use production API (requires `VITE_API_URL`)
+
+### Manual URL Updates (Production Mode Only)
 
 If your URLs expire (after 12 minutes), simply run:
 ```bash

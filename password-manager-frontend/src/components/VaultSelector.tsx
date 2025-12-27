@@ -5,7 +5,7 @@ import { getVaultName } from "../utils/vault-storage";
 interface VaultSelectorProps {
   availableVaults: VaultInfo[];
   currentVaultKey: string | null;
-  onSwitchVault: (vaultKey: string) => void;
+  onSwitchVault: (vaultKey: string | null) => void;
   onCreateVault: (vaultName: string) => void;
   loading?: boolean;
 }

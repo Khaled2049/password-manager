@@ -1,7 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { FormEvent } from "react";
 import VaultSelector from "./VaultSelector";
 import type { VaultInfo } from "../api/vault-api";
+import {
+  getPendingVaultName,
+  setPendingVaultName,
+} from "../utils/vault-storage";
 
 interface UnlockScreenProps {
   mode: "create" | "unlock";
@@ -11,8 +15,7 @@ interface UnlockScreenProps {
   error: string | null;
   availableVaults?: VaultInfo[];
   currentVaultKey?: string | null;
-  onSwitchVault?: (vaultKey: string) => void;
-  onRefreshVaults?: () => void;
+  onSwitchVault?: (vaultKey: string | null) => void;
   loadingVaults?: boolean;
 }
 
@@ -25,7 +28,6 @@ export default function UnlockScreen({
   availableVaults = [],
   currentVaultKey = null,
   onSwitchVault,
-  onRefreshVaults,
   loadingVaults = false,
 }: UnlockScreenProps) {
   const [password, setPassword] = useState("");
@@ -34,6 +36,19 @@ export default function UnlockScreen({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [newVaultName, setNewVaultName] = useState("");
   const [showVaultNameInput, setShowVaultNameInput] = useState(false);
+
+  // Check for pending vault name when component mounts or mode changes to create
+  useEffect(() => {
+    if (mode === "create") {
+      const pendingName = getPendingVaultName();
+      if (pendingName) {
+        setNewVaultName(pendingName);
+        setShowVaultNameInput(true);
+        // Clear the pending name so it doesn't persist
+        setPendingVaultName(null);
+      }
+    }
+  }, [mode]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -80,10 +95,21 @@ export default function UnlockScreen({
                 <VaultSelector
                   availableVaults={availableVaults}
                   currentVaultKey={currentVaultKey}
-                  onSwitchVault={onSwitchVault}
+                  onSwitchVault={(vaultKey) => {
+                    // If switching to create mode (empty/null), clear selection
+                    if (!vaultKey) {
+                      onSwitchVault("");
+                    } else {
+                      onSwitchVault(vaultKey);
+                    }
+                  }}
                   onCreateVault={(name) => {
                     setNewVaultName(name);
                     setShowVaultNameInput(true);
+                    // Clear current vault selection to switch to create mode
+                    if (onSwitchVault && currentVaultKey) {
+                      onSwitchVault(null);
+                    }
                   }}
                   loading={loadingVaults}
                 />
