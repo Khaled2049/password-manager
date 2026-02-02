@@ -1,0 +1,19 @@
+{
+  "name": "@password-manager/examples",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Examples for decrypting password manager vaults",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "true",    
+    "decrypt": "tsx decrypt-vault.ts"
+  },
+  "dependencies": {
+    "@password-manager/core": "file:../core"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "@types/node": "^20.11.0"
+  }
+}
