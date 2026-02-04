@@ -73,13 +73,13 @@ export class PasswordManagerStack extends cdk.Stack {
             "Content-Type",
             "Content-Length",
             "x-amz-content-sha256",
+            "If-Match",
           ],
           exposedHeaders: ["ETag", "x-amz-version-id"],
           maxAge: 3600,
         },
       ],
     });
-    
 
     const lambdaLogGroup = new logs.LogGroup(this, "VaultApiLambdaLogGroup", {
       retention: logs.RetentionDays.ONE_WEEK,
@@ -114,7 +114,7 @@ export class PasswordManagerStack extends cdk.Stack {
           "s3:HeadObject",
         ],
         resources: [`${vaultBucket.bucketArn}/vaults/*`],
-      })
+      }),
     );
 
     vaultApiLambda.addToRolePolicy(
@@ -127,7 +127,7 @@ export class PasswordManagerStack extends cdk.Stack {
             "s3:prefix": ["vaults/*"],
           },
         },
-      })
+      }),
     );
 
     // API Gateway with enhanced security
