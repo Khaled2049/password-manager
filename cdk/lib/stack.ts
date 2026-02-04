@@ -96,6 +96,7 @@ export class PasswordManagerStack extends cdk.Stack {
         BUCKET_NAME: vaultBucket.bucketName,
         NODE_OPTIONS: "--enable-source-maps",
         ALLOWED_ORIGINS: allowedOrigins.join(","),
+        MAX_VAULTS: "50",
       },
       timeout: cdk.Duration.seconds(30),
       memorySize: 128,

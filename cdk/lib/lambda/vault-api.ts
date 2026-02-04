@@ -13,6 +13,7 @@ const s3Client = new S3Client({
 const bucketName = process.env.BUCKET_NAME!;
 const VAULT_PREFIX = "vaults/";
 const URL_EXPIRATION = 720; // 12 minutes
+const MAX_VAULTS = 5;
 
 interface ApiGatewayEvent {
   httpMethod?: string;
@@ -64,7 +65,7 @@ const getOrigin = (event: ApiGatewayEvent): string | null =>
 
 async function listVaults(origin: string | null) {
   const { Contents } = await s3Client.send(
-    new ListObjectsV2Command({ Bucket: bucketName, Prefix: VAULT_PREFIX })
+    new ListObjectsV2Command({ Bucket: bucketName, Prefix: VAULT_PREFIX }),
   );
 
   const vaults =
@@ -94,11 +95,27 @@ async function getVaultUrls(event: ApiGatewayEvent, origin: string | null) {
   let etag: string | null = null;
   try {
     const { ETag } = await s3Client.send(
-      new HeadObjectCommand({ Bucket: bucketName, Key: vaultKey })
+      new HeadObjectCommand({ Bucket: bucketName, Key: vaultKey }),
     );
     etag = ETag?.replace(/"/g, "") || null;
   } catch (error: any) {
     if (error.name !== "NotFound") throw error;
+  }
+
+  // Block new vault creation if at the limit
+  if (!etag) {
+    const { KeyCount } = await s3Client.send(
+      new ListObjectsV2Command({ Bucket: bucketName, Prefix: VAULT_PREFIX }),
+    );
+    if ((KeyCount ?? 0) >= MAX_VAULTS) {
+      return response(
+        403,
+        {
+          error: `Vault limit reached (${MAX_VAULTS}). Delete a vault before creating a new one.`,
+        },
+        origin,
+      );
+    }
   }
 
   // Generate pre-signed URLs
@@ -106,12 +123,12 @@ async function getVaultUrls(event: ApiGatewayEvent, origin: string | null) {
     getSignedUrl(
       s3Client,
       new GetObjectCommand({ Bucket: bucketName, Key: vaultKey }),
-      { expiresIn: URL_EXPIRATION }
+      { expiresIn: URL_EXPIRATION },
     ),
     getSignedUrl(
       s3Client,
       new PutObjectCommand({ Bucket: bucketName, Key: vaultKey }),
-      { expiresIn: URL_EXPIRATION }
+      { expiresIn: URL_EXPIRATION },
     ),
   ]);
 
@@ -144,14 +161,14 @@ export async function handler(event: ApiGatewayEvent) {
     return response(
       404,
       { error: "Not found", resource, method: httpMethod },
-      origin
+      origin,
     );
   } catch (error: any) {
     console.error("Handler error:", error);
     return response(
       500,
       { error: error.message || "Internal server error" },
-      origin
+      origin,
     );
   }
 }
