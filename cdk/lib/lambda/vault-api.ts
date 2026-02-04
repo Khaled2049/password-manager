@@ -22,14 +22,30 @@ interface ApiGatewayEvent {
   headers?: { origin?: string; Origin?: string };
 }
 
-const corsHeaders = (origin: string = "*") => ({
-  "Content-Type": "application/json",
-  "Access-Control-Allow-Origin": origin,
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-});
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
 
-const response = (statusCode: number, body: any, origin = "*") => ({
+const validateOrigin = (origin: string | undefined): string | null => {
+  if (!origin) return null;
+  return allowedOrigins.includes(origin) ? origin : null;
+};
+
+const corsHeaders = (origin: string | null) => {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    Vary: "Origin",
+  };
+  if (origin) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+};
+
+const response = (statusCode: number, body: any, origin: string | null) => ({
   statusCode,
   headers: corsHeaders(origin),
   body: JSON.stringify(body),
@@ -43,10 +59,10 @@ const sanitizeVaultKey = (key: string): string => {
   return prefixed.endsWith(".dat") ? prefixed : `${prefixed}.dat`;
 };
 
-const getOrigin = (event: ApiGatewayEvent) =>
-  event.headers?.origin || event.headers?.Origin || "*";
+const getOrigin = (event: ApiGatewayEvent): string | null =>
+  validateOrigin(event.headers?.origin || event.headers?.Origin);
 
-async function listVaults(origin: string) {
+async function listVaults(origin: string | null) {
   const { Contents } = await s3Client.send(
     new ListObjectsV2Command({ Bucket: bucketName, Prefix: VAULT_PREFIX })
   );
@@ -62,7 +78,7 @@ async function listVaults(origin: string) {
   return response(200, { vaults }, origin);
 }
 
-async function getVaultUrls(event: ApiGatewayEvent, origin: string) {
+async function getVaultUrls(event: ApiGatewayEvent, origin: string | null) {
   const rawKey = event.pathParameters?.key
     ? decodeURIComponent(event.pathParameters.key)
     : JSON.parse(event.body || "{}").key ||

@@ -6,7 +6,6 @@ import { GitHubOidcStack } from "./lib/github-oidc-stack";
 
 const app = new cdk.App();
 
-
 new GitHubOidcStack(app, "github-oidc", {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
@@ -17,7 +16,6 @@ new GitHubOidcStack(app, "github-oidc", {
   existingOidcProviderArn:
     "arn:aws:iam::308830239283:oidc-provider/token.actions.githubusercontent.com",
 });
-
 
 const stackProps: PasswordManagerStackProps = {
   env: {
