@@ -9,20 +9,19 @@
     "examples"
   ],
   "scripts": {
-    "build": "yarn workspaces run build",
-    "clean": "yarn workspaces run clean",
-    "synth": "cd cdk && yarn synth",
-    "deploy": "cd cdk && yarn deploy",
-    "deploy:oidc": "cd cdk && npx cdk deploy github-oidc --require-approval never",
-    "deploy:app": "cd cdk && npx cdk deploy password-manager-backend-prod --require-approval never",
-    "deploy:all": "cd cdk && npx cdk deploy --all --require-approval never",
-    "diff": "cd cdk && npx cdk diff",
-    "diff:oidc": "cd cdk && npx cdk diff github-oidc",
-    "diff:app": "cd cdk && npx cdk diff password-manager-backend-prod",
-    "destroy:app": "cd cdk && npx cdk destroy password-manager-backend-prod",
-    "generate": "tsx scripts/generate-presigned-urls.ts"
+    "build": "bun run --filter '*' build",
+    "clean": "bun run --filter '*' clean",
+    "synth": "cd cdk && bun run synth",
+    "deploy": "cd cdk && bun run deploy",
+    "deploy:oidc": "cd cdk && bunx cdk deploy github-oidc --require-approval never",
+    "deploy:app": "cd cdk && bunx cdk deploy password-manager-backend-prod --require-approval never",
+    "deploy:all": "cd cdk && bunx cdk deploy --all --require-approval never",
+    "diff": "cd cdk && bunx cdk diff",
+    "diff:oidc": "cd cdk && bunx cdk diff github-oidc",
+    "diff:app": "cd cdk && bunx cdk diff password-manager-backend-prod",
+    "destroy:app": "cd cdk && bunx cdk destroy password-manager-backend-prod",
+    "generate": "bun scripts/generate-presigned-urls.ts"
   },
-  "packageManager": "yarn@1.22.0",
   "devDependencies": {
     "typescript": "^5.3.3"
   }

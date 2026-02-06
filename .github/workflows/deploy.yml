@@ -16,14 +16,11 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "yarn"
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install Dependencies
-        run: yarn install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -34,4 +31,4 @@ jobs:
           role-session-name: GitHubActions-${{ github.run_id }}
 
       - name: Deploy Stack
-        run: yarn deploy:app
+        run: bun run deploy:app
